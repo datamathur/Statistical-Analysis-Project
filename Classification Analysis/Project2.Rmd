@@ -1,0 +1,384 @@
+---
+title: "Project1 Health data"
+author: "Sai Teja Ankuru"
+date: "2023-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(reshape2)
+
+suppressWarnings({
+  library(readxl)
+})
+library(caret)
+library(randomForest)
+library(caTools)
+library(rpart)
+library(randomForest)
+library(glmnet)
+library(MASS)
+library(e1071)
+```
+
+```{r}
+df <- read.csv("project2.txt.txt", header = FALSE)
+names(df) <- c('X1', 'X2', 'X3', 'X4', 'Target')
+df <- unique(df)
+
+summary(df)
+glimpse(df)
+sapply(df, function(x) length(unique(x)))
+```
+
+```{r}
+# Box plot for outlier detection
+boxplot(df, outline = TRUE, col = c("red", "green", "blue", "orange", "purple"))
+
+# Calculate the IQR for each column
+Q1 <- quantile(df, 0.25, na.rm = TRUE)
+Q3 <- quantile(df, 0.75, na.rm = TRUE)
+IQR <- Q3 - Q1
+
+# Determine the upper and lower bounds for outliers
+upper_bound <- Q3 + 1.5 * IQR
+lower_bound <- Q1 - 1.5 * IQR
+
+# Count the number of outliers in each column
+outliers <- colSums(df < lower_bound | df > upper_bound, na.rm = TRUE)
+
+# Calculate the percentage of outliers in each column
+percentage_outliers <- outliers / nrow(df) * 100
+
+# Print the percentage of outliers in each column
+print(percentage_outliers)
+```
+
+```{r}
+remove_outliers <- function(df, col_name) {
+  # Calculate first and third quartile
+  q1 <- quantile(df[[col_name]], 0.25)
+  q3 <- quantile(df[[col_name]], 0.75)
+  iqr <- q3 - q1
+  
+  lower_bound <- q1 - 1.5*iqr
+  upper_bound <- q3 + 1.5*iqr
+  
+  df <- df[(df[[col_name]] >= lower_bound) & (df[[col_name]] <= upper_bound), ]
+  outliers <- df[(df[[col_name]] < lower_bound) | (df[[col_name]] > upper_bound), ]
+  
+  while (nrow(outliers) > 0) {
+    q1 <- quantile(df[[col_name]], 0.25)
+    q3 <- quantile(df[[col_name]], 0.75)
+    iqr <- q3 - q1
+    
+    lower_bound <- q1 - 1.5*iqr
+    upper_bound <- q3 + 1.5*iqr
+    
+    df <- df[(df[[col_name]] >= lower_bound) & (df[[col_name]] <= upper_bound), ]
+    outliers <- df[(df[[col_name]] < lower_bound) | (df[[col_name]] > upper_bound), ]
+  }
+  
+  return(df)
+}
+```
+
+```{r}
+# df <- remove_outliers(df, 'X3')
+# df <- remove_outliers(df, 'X4')
+```
+
+```{r}
+# Correlation matrix
+cor_df <- cor(df)
+print(cor_df)
+
+# Heatmap of correlation matrix
+ggplot(melt(cor_df), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "white", high = "orange", mid = "yellow",
+                       midpoint = 0, limit = c(-1, 1), space = "Lab",
+                       name = "Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1,
+                                   size = 10, hjust = 1)) +
+  coord_fixed() +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black", fontface = "bold")
+
+```
+
+```{r}
+# Univariate Analysis
+# Histogram of all columns
+df %>%
+  gather() %>%
+  ggplot(aes(x = value)) +
+  facet_wrap(~ key, scales = "free_x") +
+  geom_histogram(fill = "orange", color = "black", alpha = 0.8) +
+  scale_x_continuous(labels = scales::comma, position = "top") +
+  theme_bw()
+
+# Histogram of individual columns
+df %>%
+  ggplot(aes(x = X1)) +
+  geom_histogram(fill = "orange", color = "white", alpha = 0.8) +
+  theme_bw()
+
+df %>%
+  ggplot(aes(x = X2)) +
+  geom_histogram(fill = "orange", color = "white", alpha = 0.8) +
+  theme_bw()
+
+df %>%
+  ggplot(aes(x = X3)) +
+  geom_histogram(fill = "orange", color = "white", alpha = 0.8) +
+  theme_bw()
+
+df %>%
+  ggplot(aes(x = X4)) +
+  geom_histogram(fill = "orange", color = "white", alpha = 0.8) +
+  theme_bw()
+```
+
+```{r}
+# Scatter plot of individual columns against X1
+df %>%
+  ggplot(aes(y = Target, x = X1)) +
+  geom_point(color = "blue") +
+  theme_bw()
+
+df %>%
+  ggplot(aes(y = Target, x = X2)) +
+  geom_point(color = "red") +
+  theme_bw()
+
+df %>%
+  ggplot(aes(y = Target, x = X3)) +
+  geom_point(color = "blue") +
+  theme_bw()
+
+df %>%
+  ggplot(aes(y = Target, x = X4)) +
+  geom_point(color = "red") +
+  theme_bw()
+
+```
+
+```{r}
+df %>%
+  ggplot(aes(x = Target)) +
+  geom_histogram(fill = "blue", color = "black", alpha = 0.8) +
+  theme_bw()
+```
+
+```{r}
+count(df, Target)
+```
+
+```{r}
+#library(ROSE)
+
+# Separate features and target variable
+#X <- df[, 1:4]
+#y <- df$Target
+
+# Apply SMOTE to balance the data
+#oversampled <- ROSE(Target ~ ., data = cbind(X, y), seed = 1)$data
+
+# Check the count of each class after resampling
+#table(oversampled$Class)
+
+#library(smotefamily)
+# Check the class distribution
+#table(y)
+
+# Perform SMOTE
+#data_smote <- SMOTE(x = df[,-1], y = df$Target)
+#data_smote <- SMOTE(X, y)
+#data_oversampled <- ROSE(Target ~ ., data = df, seed = 123, N = nrow(df), p = 0.5)
+
+# View the class distribution of the SMOTE data
+#table(data_smote$Target)
+
+```
+
+```{r}
+set.seed(123)
+sample1 <- sample(c(TRUE, FALSE), nrow(df), replace=TRUE, prob=c(0.8,0.2))
+train1 <- df[sample1,]
+test1 <- df[!sample1,]
+
+xtrain1 <- model.matrix(Target ~ ., train1)[,-1]
+ytrain1 <- train1$Target
+xtest1 <- model.matrix(Target ~ ., test1)[,-1]
+ytest1 <- test1$Target
+```
+
+```{r}
+# Fitting a logistic regression model
+logit_model <- glm(formula = Target ~ X1 + X2 + X3 + X4,
+                   data = df,
+                   family = binomial(link = "logit"))
+
+# Print the summary of the model
+print(summary(logit_model))
+
+# Predict on the test set
+logit_pred <- predict(logit_model, newdata = test1, type = "response")
+
+logit_class <- ifelse(logit_pred > 0.5, 1, 0)
+
+logit_class_factor <- factor(logit_class, levels = unique(c(logit_class, ytest1)))
+ytest1_factor <- factor(ytest1, levels = unique(c(logit_class, ytest1)))
+
+# Calculate the confusion matrix and classification report
+confusion <- confusionMatrix(logit_class_factor, ytest1_factor)
+
+accuracy <- sprintf("%.4f", confusion$overall["Accuracy"])
+cat('accuracy:', accuracy)
+```
+
+```{r}
+# fit LDA model on training data
+lda.fit <- lda(Target ~ ., data = df)
+print(lda.fit)
+# make predictions on test data
+test1_predictors <- test1[, colnames(df)[-5]]
+lda_pred <- predict(lda.fit, newdata = test1_predictors)$class
+
+# convert predictions and test labels to factors with same levels
+lda_pred_factor <- factor(lda_pred, levels = unique(c(lda_pred, ytest1)))
+ytest1_factor <- factor(ytest1, levels = unique(c(lda_pred, ytest1)))
+
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(lda_pred_factor, ytest1_factor)
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", accuracy))
+
+```
+
+```{r}
+# fit QDA model on training data
+qda.fit <- qda(Target ~ ., data = df)
+print(qda.fit)
+# make predictions on test data
+test1_predictors <- test1[, colnames(df)[-5]]
+qda_pred <- predict(qda.fit, newdata = test1_predictors)$class
+
+# convert predictions and test labels to factors with same levels
+qda_pred_factor <- factor(qda_pred, levels = unique(c(qda_pred, ytest1)))
+ytest1_factor <- factor(ytest1, levels = unique(c(qda_pred, ytest1)))
+
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(qda_pred_factor, ytest1_factor)
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", accuracy))
+
+```
+
+```{r}
+# convert data to matrix format
+X_train <- data.matrix(df[, -5])
+y_train <- df$Target
+X_test <- data.matrix(test1[, -5])
+y_test <- test1$Target
+
+# fit Ridge classifier on training data
+ridge_fit <- cv.glmnet(X_train, y_train, alpha = 0, family = "binomial")
+print(ridge_fit)
+lambda_opt <- ridge_fit$lambda.min
+ridge_pred <- predict(ridge_fit, newx = X_test, s = lambda_opt, type = "class")
+
+# convert predictions and test labels to factors with same levels
+ridge_pred_factor <- factor(ridge_pred, levels = unique(c(ridge_pred, y_test)))
+y_test_factor <- factor(y_test, levels = unique(c(ridge_pred, y_test)))
+
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(ridge_pred_factor, y_test_factor)
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", accuracy))
+
+```
+
+```{r}
+# Random Forest Classifier
+X_train <- data.matrix(train1[, -5])
+y_train <- train1$Target
+X_test <- data.matrix(test1[, -5])
+y_test <- test1$Target
+
+rf_fit <- randomForest(Target ~ ., data = train1, importance = TRUE, proximity = TRUE, cutoff = 0.5)
+print(rf_fit)
+rf_pred <- as.factor(predict(rf_fit, newdata = test1, type = 'response'))
+# convert predictions and test labels to factors with same levels
+unique_vals <- unique(c(rf_pred, y_test))
+
+unique_vals <- unique_vals[!duplicated(unique_vals)]
+rf_pred_factor <- factor(rf_pred, levels = unique_vals)
+y_test_factor <- factor(y_test, levels = unique_vals)
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(rf_pred_factor, y_test_factor)
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", accuracy))
+```
+
+```{r}
+# fit decision tree model on training data
+tree_fit <- rpart(Target ~ ., data = train1)
+print(tree_fit)
+
+# make predictions on test data
+tree_pred <- predict(tree_fit, newdata = test1, type = "vector")
+
+# convert predictions and test labels to factors with same levels
+tree_pred_factor <- factor(tree_pred, levels = unique(c(tree_pred, ytest1)))
+ytest1_factor <- factor(ytest1, levels = unique(c(tree_pred, ytest1)))
+
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(tree_pred_factor, ytest1_factor)
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", 1 - accuracy))
+```
+
+```{r}
+# fit SVM model on training data
+svm_fit <- svm(Target ~ ., data = train1, kernel = "radial")
+print(svm_fit)
+
+# make predictions on test data
+test1_predictors <- test1[, colnames(df)[-5]]
+svm_pred <- predict(svm_fit, newdata = test1_predictors)
+
+# convert predictions and test labels to factors with same levels
+svm_pred_factor <- factor(svm_pred, levels = unique(c(svm_pred, ytest1)))
+ytest1_factor <- factor(ytest1, levels = unique(c(svm_pred, ytest1)))
+
+# calculate confusion matrix and accuracy
+confusion <- confusionMatrix(svm_pred_factor, ytest1_factor, mode = "everything")
+accuracy <- confusion$overall['Accuracy']
+
+# print accuracy
+cat('accuracy:', sprintf("%.4f", 1-accuracy))
+```
